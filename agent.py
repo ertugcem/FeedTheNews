@@ -6,25 +6,38 @@ from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
 
-# Config
+# ---------------------------------------------------------------------------
+# CONFIGURATION
+# ---------------------------------------------------------------------------
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+# Geniş Kapsamlı Haber Akışları (Tek tek kelime aratmak yerine geniş kategoriler)
 RSS_FEEDS = [
-    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=AAPL,NVDA,MSFT,AMZN,GOOGL,TSLA,META,AMD&region=US&lang=en-US",
-    "https://news.google.com/rss/search?q=when:1h+stock+market+OR+economy&hl=en-US&gl=US&ceid=US:en"
+    # 1. Mega-Cap Teknoloji Ticker'ları
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=AAPL,NVDA,MSFT,AMZN,GOOGL,TSLA,META,AMD,MU,SNDK&region=US&lang=en-US",
+    # 2. Geniş Borsa, Makroekonomi ve Jeopolitik Akış
+    "https://news.google.com/rss/search?q=when:1h+stock+market+OR+economy+OR+finance+OR+geopolitics&hl=en-US&gl=US&ceid=US:en",
+    # 3. Yarı İletken, Teknoloji ve Sektörel Akış
+    "https://news.google.com/rss/search?q=when:1h+semiconductor+OR+tech+OR+earnings&hl=en-US&gl=US&ceid=US:en"
 ]
 
 SEEN_ARTICLES_FILE = "seen_articles.json"
 
+# ---------------------------------------------------------------------------
+# PYDANTIC OUTPUT SCHEMA
+# ---------------------------------------------------------------------------
 class TickerImpact(BaseModel):
-    ticker: str = Field(description="İlgili hisse kodu (örn: NVDA, AAPL). Yoksa 'MACRO'")
-    exchange: str = Field(description="NASDAQ, NYSE veya UNKNOWN")
-    impact: str = Field(description="BULLISH, BEARISH veya NEUTRAL")
+    subject: str = Field(description="Haberin ana konusu veya kaynağı (Örn: 'Kospi / DRAM Uyarısı', 'FED Açıklaması', 'NVDA Bilanço')")
+    ticker: str = Field(description="İlgili ABD hisse kodları veya makro etiketler (Örn: MU, NVDA, SPY, OIL)")
+    impact_type: str = Field(description="BULLISH, BEARISH, NEUTRAL veya GEOPOLITICAL_RISK")
     confidence_score: float = Field(description="0.0 ile 1.0 arasında güven skoru")
-    reasoning: str = Field(description="Haberin bu ticker üzerindeki etkisinin Türkçe özeti (Max 2 cümle)")
+    market_message: str = Field(description="Olayın piyasa, tedarik zinciri ve hisseler üzerindeki etkisini açıklayan net ve akıcı analiz (Türkçe)")
 
+# ---------------------------------------------------------------------------
+# HELPER FUNCTIONS
+# ---------------------------------------------------------------------------
 def load_seen_articles():
     if os.path.exists(SEEN_ARTICLES_FILE):
         try:
@@ -39,25 +52,61 @@ def save_seen_articles(seen_set):
         json.dump(list(seen_set)[-1000:], f)
 
 def send_telegram_alert(analysis: TickerImpact, title: str, link: str):
-    emoji = "🟢" if analysis.impact == "BULLISH" else "🔴" if analysis.impact == "BEARISH" else "⚪"
+    if analysis.impact_type == "GEOPOLITICAL_RISK":
+        emoji = "⚠️"
+    elif analysis.impact_type == "BULLISH":
+        emoji = "🟢"
+    elif analysis.impact_type == "BEARISH":
+        emoji = "🔴"
+    else:
+        emoji = "⚪"
+    
     message = (
-        f"{emoji} **[{analysis.impact}] {analysis.ticker}** ({analysis.exchange})\n"
-        f"**Güven Skoru:** {analysis.confidence_score * 100:.0f}%\n\n"
-        f"**Haber:** {title}\n\n"
-        f"**Analiz:** {analysis.reasoning}\n\n"
+        f"{emoji} **[{analysis.subject}]** ({analysis.ticker})\n"
+        f"**Piyasa Sinyali:** {analysis.impact_type}\n\n"
+        f"📰 **Haber:** {title}\n\n"
+        f"💬 **Analist Yorumu:** {analysis.market_message}\n\n"
         f"🔗 [Habere Git]({link})"
     )
+    
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown", "disable_web_page_preview": True}
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
+    }
     try:
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
         print(f"Telegram hatası: {e}")
 
+# ---------------------------------------------------------------------------
+# CORE AGENT LOGIC
+# ---------------------------------------------------------------------------
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 def analyze_news_item(title: str, summary: str) -> TickerImpact:
-    prompt = f"Sen finansal analistsin. Haberi incele:\nBaşlık: {title}\nÖzet: {summary}\nEtkilenen birincil ticker ve yönü belirle."
+    prompt = f"""
+    Sen küresel piyasalar, tedarik zincirleri ve makroekonomi konusunda uzmanlaşmış kıdemli bir Wall Street analistisin.
+    
+    Aşağıdaki haberi okumak ve ekonomi üzerindeki ikincil/üçüncül etkilerini (Second-order effects) analiz etmekle görevlisin:
+    
+    Haber Başlığı: {title}
+    Haber Özeti: {summary}
+    
+    Analiz Kuralları:
+    1. NEDENSELLİK ZİNCİRİ KUR: Haberde adı geçen bölge, şirket veya olayın (Örn: Kospi, TSMC, Orta Doğu, FED, gümrük vergileri) ABD borsalarında (NASDAQ/NYSE) doğrudan veya dolaylı KİMİ etkileyeceğini tespit et.
+       - Örnek: Kore/Kospi DRAM uyarısı -> Micron ($MU) ve bellek sektörü etkilenir.
+       - Örnek: Tayvan/Çip aksaması -> Nvidia ($NVDA) ve Apple ($AAPL) etkilenir.
+       - Örnek: Jeopolitik/Siyasi kriz -> Genel piyasa ($SPY), petrol veya ilgili sektör etkilenir.
+       
+    2. MESAJ TONU: 'market_message' alanına doğrudan durumu özetleyen şu tonda akıcı bir Türkçe analiz yaz:
+       "Piyasaya şöyle bir haber/açıklama düştü; bunun tedarik zinciri/sektör üzerindeki etkisi nedeniyle [ilgili varlıklar/ticker'lar] üzerinde [şu yönde] bir etkisi olacaktır..."
+       
+    3. TİCKER SEÇİMİ: Haberin en çok etki edeceği birincil US Ticker'ı veya makro etiketi (Örn: MU, NVDA, SPY, OIL) belirle.
+    """
+    
     response = client.models.generate_content(
         model="gemini-1.5-flash",
         contents=prompt,
@@ -67,6 +116,7 @@ def analyze_news_item(title: str, summary: str) -> TickerImpact:
             temperature=0.1
         )
     )
+    
     return TickerImpact.model_validate_json(response.text)
 
 def main():
@@ -87,8 +137,10 @@ def main():
             
             try:
                 analysis = analyze_news_item(title, summary)
-                if analysis.impact in ["BULLISH", "BEARISH"] and analysis.confidence_score >= 0.6:
+                # Anlamlı ve yeterli güven skoruna sahip analizleri bildir
+                if analysis.confidence_score >= 0.6:
                     send_telegram_alert(analysis, title, link)
+                    print(f"-> Telegram Gönderildi: {analysis.subject} [{analysis.impact_type}]")
             except Exception as e:
                 print(f"Analiz hatası: {e}")
             
