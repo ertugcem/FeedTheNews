@@ -148,5 +148,11 @@ def main():
     
     save_seen_articles(seen_articles)
 
+    # ---------------------------------------------------------------------------
+    # HER ÇALIŞMADA BİLDİRİM / HEARTBEAT MESAJI
+    # ---------------------------------------------------------------------------
+    if new_alerts_sent == 0:
+        send_system_status_message("ℹ️ Ajan çalıştı: Yeni/kritik haber bulunamadı.")
+
 if __name__ == "__main__":
     main()
