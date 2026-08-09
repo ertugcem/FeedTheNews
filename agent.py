@@ -81,6 +81,18 @@ def send_telegram_alert(analysis: TickerImpact, title: str, link: str):
     except Exception as e:
         print(f"Telegram hatası: {e}")
 
+def send_system_status_message(status_text: str):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": status_text,
+        "disable_web_page_preview": True
+    }
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"Status mesajı hatası: {e}")
+
 # ---------------------------------------------------------------------------
 # CORE AGENT LOGIC
 # ---------------------------------------------------------------------------
