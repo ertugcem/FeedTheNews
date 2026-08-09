@@ -2,9 +2,12 @@ name: News Agent Runner
 
 on:
   schedule:
-    # Her 10 dakikada bir tetiklenir
     - cron: '*/10 * * * *'
-  workflow_dispatch: # Manuel tetikleme butonu ekler
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
 
 jobs:
   run-agent:
@@ -23,29 +26,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # Önceki çalışmadan kalma görülmüş haberler listesini indir
-      - name: Download Cache State
-        uses: dawidd6/action-download-artifact@v6
+      - name: Cache Seen Articles
+        id: cache-articles
+        uses: actions/cache@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow: agent.yml
-          name: seen-articles-state
-          path: ./
-          search_artifacts: true
-          if_no_artifact_found: warn
+          path: seen_articles.json
+          key: seen-articles-${{ github.run_id }}
+          restore-keys: |
+            seen-articles-
 
-      # Ajanı çalıştır
       - name: Run News Agent
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python agent.py
-
-      # Güncellenmiş görülmüş haberler listesini kaydet
-      - name: Upload Updated State
-        uses: actions/upload-artifact@v4
-        with:
-          name: seen-articles-state
-          path: seen_articles.json
-          retention-days: 7
