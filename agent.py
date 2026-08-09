@@ -120,7 +120,7 @@ def analyze_news_item(title: str, summary: str) -> TickerImpact:
     """
     
     response = client.models.generate_content(
-        model="gemini-flash",
+        model="gemini-3.5-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
