@@ -13,9 +13,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Geniş Kapsamlı Haber Akışları (Tek tek kelime aratmak yerine geniş kategoriler)
+# Geniş Kapsamlı Haber Akışları
 RSS_FEEDS = [
-    # 1. Mega-Cap Teknoloji Ticker'ları
+    # 1. Mega-Cap Teknoloji & Bellek Ticker'ları
     "https://feeds.finance.yahoo.com/rss/2.0/headline?s=AAPL,NVDA,MSFT,AMZN,GOOGL,TSLA,META,AMD,MU,SNDK&region=US&lang=en-US",
     # 2. Geniş Borsa, Makroekonomi ve Jeopolitik Akış
     "https://news.google.com/rss/search?q=when:1h+stock+market+OR+economy+OR+finance+OR+geopolitics&hl=en-US&gl=US&ceid=US:en",
@@ -135,6 +135,8 @@ def main():
     seen_articles = load_seen_articles()
     print(f"Mevcut taranmış haber sayısı: {len(seen_articles)}")
     
+    new_alerts_sent = 0
+
     for feed_url in RSS_FEEDS:
         feed = feedparser.parse(feed_url)
         for entry in feed.entries:
@@ -149,9 +151,9 @@ def main():
             
             try:
                 analysis = analyze_news_item(title, summary)
-                # Anlamlı ve yeterli güven skoruna sahip analizleri bildir
                 if analysis.confidence_score >= 0.6:
                     send_telegram_alert(analysis, title, link)
+                    new_alerts_sent += 1
                     print(f"-> Telegram Gönderildi: {analysis.subject} [{analysis.impact_type}]")
             except Exception as e:
                 print(f"Analiz hatası: {e}")
@@ -160,9 +162,7 @@ def main():
     
     save_seen_articles(seen_articles)
 
-    # ---------------------------------------------------------------------------
-    # HER ÇALIŞMADA BİLDİRİM / HEARTBEAT MESAJI
-    # ---------------------------------------------------------------------------
+    # Hiç yeni/kritik bildirim atılmadıysa durum bildirimi gönder
     if new_alerts_sent == 0:
         send_system_status_message("ℹ️ Ajan çalıştı: Yeni/kritik haber bulunamadı.")
 
