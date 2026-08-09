@@ -5,9 +5,7 @@ on:
     - cron: '*/10 * * * *'
   workflow_dispatch:
 
-permissions:
-  contents: write
-  actions: read
+permissions: write-all
 
 jobs:
   run-agent:
@@ -26,18 +24,27 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Cache Seen Articles
-        id: cache-articles
-        uses: actions/cache@v4
+      # Önceki taranan haberlerin geçmişini yükle
+      - name: Restore Cache State
+        uses: actions/cache/restore@v4
         with:
           path: seen_articles.json
           key: seen-articles-${{ github.run_id }}
           restore-keys: |
             seen-articles-
 
+      # Ajanı çalıştır
       - name: Run News Agent
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python agent.py
+
+      # Yeni taranan haberler listesini kaydet
+      - name: Save Cache State
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: seen_articles.json
+          key: seen-articles-${{ github.run_id }}
