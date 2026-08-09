@@ -1,0 +1,51 @@
+name: News Agent Runner
+
+on:
+  schedule:
+    # Her 10 dakikada bir tetiklenir
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Manuel tetikleme butonu ekler
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code Checkout
+        uses: actions/checkout@v4
+
+      - name: Python Kurulumu
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Bağımlılıkları Yükle
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Önceki çalışmadan kalma görülmüş haberler listesini indir
+      - name: Download Cache State
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow: agent.yml
+          name: seen-articles-state
+          path: ./
+          search_artifacts: true
+          if_no_artifact_found: warn
+
+      # Ajanı çalıştır
+      - name: Run News Agent
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python agent.py
+
+      # Güncellenmiş görülmüş haberler listesini kaydet
+      - name: Upload Updated State
+        uses: actions/upload-artifact@v4
+        with:
+          name: seen-articles-state
+          path: seen_articles.json
+          retention-days: 7
