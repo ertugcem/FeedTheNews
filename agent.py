@@ -1,4 +1,5 @@
 import os
+import time
 import json
 import feedparser
 import requests
@@ -13,31 +14,21 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Geniş Kapsamlı Haber Akışları
 RSS_FEEDS = [
-    # 1. Mega-Cap Teknoloji & Bellek Ticker'ları
     "https://feeds.finance.yahoo.com/rss/2.0/headline?s=AAPL,NVDA,MSFT,AMZN,GOOGL,TSLA,META,AMD,MU,SNDK&region=US&lang=en-US",
-    # 2. Geniş Borsa, Makroekonomi ve Jeopolitik Akış
     "https://news.google.com/rss/search?q=when:1h+stock+market+OR+economy+OR+finance+OR+geopolitics&hl=en-US&gl=US&ceid=US:en",
-    # 3. Yarı İletken, Teknoloji ve Sektörel Akış
     "https://news.google.com/rss/search?q=when:1h+semiconductor+OR+tech+OR+earnings&hl=en-US&gl=US&ceid=US:en"
 ]
 
 SEEN_ARTICLES_FILE = "seen_articles.json"
 
-# ---------------------------------------------------------------------------
-# PYDANTIC OUTPUT SCHEMA
-# ---------------------------------------------------------------------------
 class TickerImpact(BaseModel):
-    subject: str = Field(description="Haberin ana konusu veya kaynağı (Örn: 'Kospi / DRAM Uyarısı', 'FED Açıklaması', 'NVDA Bilanço')")
-    ticker: str = Field(description="İlgili ABD hisse kodları veya makro etiketler (Örn: MU, NVDA, SPY, OIL)")
+    subject: str = Field(description="Haberin ana konusu veya kaynağı")
+    ticker: str = Field(description="İlgili ABD hisse kodları veya makro etiketler")
     impact_type: str = Field(description="BULLISH, BEARISH, NEUTRAL veya GEOPOLITICAL_RISK")
     confidence_score: float = Field(description="0.0 ile 1.0 arasında güven skoru")
-    market_message: str = Field(description="Olayın piyasa, tedarik zinciri ve hisseler üzerindeki etkisini açıklayan net ve akıcı analiz (Türkçe)")
+    market_message: str = Field(description="Net ve akıcı Türkçe analiz")
 
-# ---------------------------------------------------------------------------
-# HELPER FUNCTIONS
-# ---------------------------------------------------------------------------
 def load_seen_articles():
     if os.path.exists(SEEN_ARTICLES_FILE):
         try:
@@ -61,23 +52,27 @@ def send_telegram_alert(analysis: TickerImpact, title: str, link: str):
     else:
         emoji = "⚪"
     
+    # HTML Parsing kullanılarak Markdown çökmesi engellendi
     message = (
-        f"{emoji} **[{analysis.subject}]** ({analysis.ticker})\n"
-        f"**Piyasa Sinyali:** {analysis.impact_type}\n\n"
-        f"📰 **Haber:** {title}\n\n"
-        f"💬 **Analist Yorumu:** {analysis.market_message}\n\n"
-        f"🔗 [Habere Git]({link})"
+        f"{emoji} <b>[{analysis.subject}]</b> ({analysis.ticker})\n"
+        f"<b>Piyasa Sinyali:</b> {analysis.impact_type}\n\n"
+        f"📰 <b>Haber:</b> {title}\n\n"
+        f"💬 <b>Analist Yorumu:</b> {analysis.market_message}\n\n"
+        f'🔗 <a href="{link}">Habere Git</a>'
     )
     
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
-        "parse_mode": "Markdown",
+        "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
     try:
-        requests.post(url, json=payload, timeout=10)
+        res = requests.post(url, json=payload, timeout=10)
+        print(f"Telegram Gönderim Sonucu: {res.status_code}")
+        if res.status_code != 200:
+            print(f"Telegram HatayDetayı: {res.text}")
     except Exception as e:
         print(f"Telegram hatası: {e}")
 
@@ -93,9 +88,6 @@ def send_system_status_message(status_text: str):
     except Exception as e:
         print(f"Status mesajı hatası: {e}")
 
-# ---------------------------------------------------------------------------
-# CORE AGENT LOGIC
-# ---------------------------------------------------------------------------
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 def analyze_news_item(title: str, summary: str) -> TickerImpact:
@@ -108,15 +100,9 @@ def analyze_news_item(title: str, summary: str) -> TickerImpact:
     Haber Özeti: {summary}
     
     Analiz Kuralları:
-    1. NEDENSELLİK ZİNCİRİ KUR: Haberde adı geçen bölge, şirket veya olayın (Örn: Kospi, TSMC, Orta Doğu, FED, gümrük vergileri) ABD borsalarında (NASDAQ/NYSE) doğrudan veya dolaylı KİMİ etkileyeceğini tespit et.
-       - Örnek: Kore/Kospi DRAM uyarısı -> Micron ($MU) ve bellek sektörü etkilenir.
-       - Örnek: Tayvan/Çip aksaması -> Nvidia ($NVDA) ve Apple ($AAPL) etkilenir.
-       - Örnek: Jeopolitik/Siyasi kriz -> Genel piyasa ($SPY), petrol veya ilgili sektör etkilenir.
-       
-    2. MESAJ TONU: 'market_message' alanına doğrudan durumu özetleyen şu tonda akıcı bir Türkçe analiz yaz:
-       "Piyasaya şöyle bir haber/açıklama düştü; bunun tedarik zinciri/sektör üzerindeki etkisi nedeniyle [ilgili varlıklar/ticker'lar] üzerinde [şu yönde] bir etkisi olacaktır..."
-       
-    3. TİCKER SEÇİMİ: Haberin en çok etki edeceği birincil US Ticker'ı veya makro etiketi (Örn: MU, NVDA, SPY, OIL) belirle.
+    1. NEDENSELLİK ZİNCİRİ KUR: Haberde adı geçen bölge, şirket veya olayın ABD borsalarında kimi etkileyeceğini tespit et.
+    2. MESAJ TONU: 'market_message' alanına akıcı bir Türkçe analiz yaz.
+    3. TİCKER SEÇİMİ: İlgili birincil US Ticker'ı veya makro etiketi belirle.
     """
     
     response = client.models.generate_content(
@@ -155,14 +141,21 @@ def main():
                     send_telegram_alert(analysis, title, link)
                     new_alerts_sent += 1
                     print(f"-> Telegram Gönderildi: {analysis.subject} [{analysis.impact_type}]")
+                
+                # Free-tier 5 RPM (Dakikada 5 İstek) Sınırını Aşmamak İçin 12 saniye bekleme
+                time.sleep(12)
+
             except Exception as e:
                 print(f"Analiz hatası: {e}")
+                # Rate limit (429) durumunda fazladan bekle
+                if "429" in str(e):
+                    print("Rate limit aşıldı, 30 saniye bekleniyor...")
+                    time.sleep(30)
             
             seen_articles.add(article_id)
     
     save_seen_articles(seen_articles)
 
-    # Hiç yeni/kritik bildirim atılmadıysa durum bildirimi gönder
     if new_alerts_sent == 0:
         send_system_status_message("ℹ️ Ajan çalıştı: Yeni/kritik haber bulunamadı.")
 
